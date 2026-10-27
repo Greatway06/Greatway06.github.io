@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>六维度院校评估工具</title>
+
+<style>
+  :root{
+    --main:#1F4E79;
+    --text:#1F1F1F;
+    --gray:#666666;
+    --line:#E5E7EB;
+    --soft:#F7F8FA;
+    --radius:12px;
+    --maxw:880px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:#fff;color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:16px;line-height:1.7;
+  }
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  a{color:var(--main)}
+
+  header.top{padding:40px 0 8px}
+  .back{font-size:14px;text-decoration:none}
+  h1{font-size:30px;font-weight:600;margin:12px 0 8px;line-height:1.3}
+  .lede{color:var(--gray);font-size:15px;margin:0 0 8px;max-width:640px}
+
+  section{border:1px solid var(--line);border-radius:var(--radius);padding:24px;margin:24px 0;background:#fff}
+  h2{font-size:16px;font-weight:600;margin:0 0 4px}
+  .hint{font-size:13px;color:var(--gray);margin:0 0 16px}
+
+  .dim{display:grid;grid-template-columns:110px 1fr 52px;gap:12px;align-items:center;margin:10px 0}
+  .dim .name{font-size:14px}
+  .dim .pct{font-size:13px;color:var(--main);text-align:right;font-variant-numeric:tabular-nums}
+
+  input[type=range]{width:100%;accent-color:var(--main);height:28px}
+  input[type=text]{
+    width:100%;font:inherit;font-size:15px;padding:8px 10px;
+    border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text);
+  }
+
+  .school-head{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .school-head input[type=text]{flex:1;min-width:160px}
+  .total{font-size:26px;font-weight:600;color:var(--main);font-variant-numeric:tabular-nums;min-width:76px;text-align:right}
+  .rank{font-size:12px;color:var(--gray)}
+  .score-row{display:grid;grid-template-columns:110px 1fr 48px;gap:12px;align-items:center;margin:6px 0}
+  .score-row .val{font-size:14px;text-align:right;font-variant-numeric:tabular-nums;color:var(--main);font-weight:600}
+  .score-row .name{font-size:14px;color:var(--text)}
+
+  .actions{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 40px}
+  button{
+    min-height:44px;padding:0 20px;border-radius:8px;cursor:pointer;
+    border:1px solid var(--main);background:var(--main);color:#fff;font-size:15px;font-family:inherit;
+  }
+  button.ghost{background:#fff;color:var(--main)}
+  button:active{transform:translateY(1px)}
+  .copied{color:var(--main);font-size:14px;align-self:center}
+  #exportBox{width:100%;min-height:180px;font-family:ui-monospace,Consolas,monospace;
+    font-size:13px;padding:12px;border:1px solid var(--line);border-radius:8px;margin-top:12px;display:none}
+
+  @media (max-width:768px){
+    .wrap{padding:0 16px}
+    h1{font-size:24px}
+    section{padding:18px}
+    .dim,.score-row{grid-template-columns:92px 1fr 44px;gap:8px}
+    .school-head{flex-direction:column;align-items:stretch}
+    .total{text-align:left}
+    button{width:100%}
+  }
+</style>
+</head>
+<body>
+
+<header class="top wrap">
+  <a class="back" href="index.html">← 返回作品集</a>
+  <h1>六维度院校评估工具</h1>
+  <p class="lede">实习时为评估校企合作院校搭的量化模型。给 6 个维度打 1–5 分、调权重，自动算加权总分并排序——把「凭感觉选学校」变成「有依据的排序」。</p>
+</header>
+
+<main class="wrap">
+
+  <section>
+    <h2>一、维度权重</h2>
+    <p class="hint">拖动滑块调权重，右边百分比自动归一化（合计永远是 100%）。</p>
+    <div id="weights"></div>
+  </section>
+
+  <section>
+    <h2>二、院校打分</h2>
+    <p class="hint">每项 1–5 分，0.5 一档。总分按权重加权，四舍五入到两位小数，按分数从高到低排。</p>
+    <div id="schools"></div>
+    <div class="actions">
+      <button type="button" class="ghost" id="add">＋ 添加一所院校</button>
+    </div>
+  </section>
+
+  <div class="actions">
+    <button type="button" id="export">导出结果</button>
+    <button type="button" class="ghost" id="reset">恢复示例数据</button>
+    <span class="copied" id="msg"></span>
+  </div>
+  <textarea id="exportBox" readonly></textarea>
+
+</main>
+
+<script>
+// ============ 数据 ============
+var DIMS = ["区位便利度", "学生匹配度", "合作意愿", "决策效率", "潜在规模", "战略协同度"];
+
+// 权重是"原始值"，展示时归一化；示例默认 20/20/20/20/10/10 → 20% 五档
+var DEFAULT_WEIGHTS = [20, 20, 20, 20, 10, 10];
+
+// 示例院校：两所目标院校的真实加权分 4.35 / 3.95
+var DEFAULT_SCHOOLS = [
+  { name: "院校 A", scores: [5, 5, 5, 4.5, 2.5, 2] },
+  { name: "院校 B", scores: [4.5, 4.5, 4.5, 4, 2.5, 2] }
+];
+
+var weights = DEFAULT_WEIGHTS.slice();
+var schools = [];      // { id, name, scores[] }
+var seq = 0;
+
+// ============ 计算 ============
+function normalizedWeights() {
+  var sum = weights.reduce(function (a, b) { return a + b; }, 0);
+  if (sum <= 0) return weights.map(function () { return 1 / weights.length; });
+  return weights.map(function (w) { return w / sum; });
+}
+
+function totalOf(school) {
+  var w = normalizedWeights();
+  var t = 0;
+  for (var i = 0; i < DIMS.length; i++) t += w[i] * school.scores[i];
+  return Math.round(t * 100) / 100;
+}
+
+function fmt(n) { return n.toFixed(2); }
+function fmtScore(n) { return (Math.round(n * 2) / 2).toFixed(1).replace(/\.0$/, ""); }
+
+// ============ 渲染：权重 ============
+var weightsEl = document.getElementById("weights");
+DIMS.forEach(function (name, i) {
+  var row = document.createElement("div");
+  row.className = "dim";
+  row.innerHTML =
+    '<div class="name">' + name + '</div>' +
+    '<input type="range" min="0" max="40" step="1" value="' + weights[i] + '" data-w="' + i + '">' +
+    '<div class="pct" id="pct' + i + '"></div>';
+  weightsEl.appendChild(row);
+});
+weightsEl.addEventListener("input", function (e) {
+  var i = e.target.dataset.w;
+  if (i === undefined) return;
+  weights[Number(i)] = Number(e.target.value);
+  paint();
+});
+
+// ============ 渲染：院校 ============
+var schoolsEl = document.getElementById("schools");
+
+function addSchool(data) {
+  var school = {
+    id: ++seq,
+    name: data ? data.name : "新院校 " + seq,
+    scores: data ? data.scores.slice() : [3, 3, 3, 3, 3, 3]
+  };
+  schools.push(school);
+
+  var card = document.createElement("div");
+  card.className = "school";
+  card.style.marginBottom = "28px";
+  card.dataset.id = school.id;
+
+  var head = document.createElement("div");
+  head.className = "school-head";
+  head.innerHTML =
+    '<input type="text" value="' + school.name + '" data-name="' + school.id + '" aria-label="院校名称">' +
+    '<div class="total" id="total' + school.id + '">0.00</div>' +
+    '<div class="rank" id="rank' + school.id + '"></div>';
+  card.appendChild(head);
+
+  DIMS.forEach(function (dim, i) {
+    var row = document.createElement("div");
+    row.className = "score-row";
+    row.innerHTML =
+      '<div class="name">' + dim + '</div>' +
+      '<input type="range" min="1" max="5" step="0.5" value="' + school.scores[i] +
+      '" data-id="' + school.id + '" data-s="' + i + '">' +
+      '<div class="val" id="v' + school.id + '-' + i + '">' + fmtScore(school.scores[i]) + '</div>';
+    card.appendChild(row);
+  });
+
+  schoolsEl.appendChild(card);
+  paint();
+}
+
+schoolsEl.addEventListener("input", function (e) {
+  var t = e.target;
+  if (t.dataset.s !== undefined) {
+    var id = Number(t.dataset.id);
+    var school = schools.filter(function (s) { return s.id === id; })[0];
+    if (!school) return;
+    school.scores[Number(t.dataset.s)] = Number(t.value);
+    document.getElementById("v" + id + "-" + t.dataset.s).textContent = fmtScore(Number(t.value));
+  } else if (t.dataset.name !== undefined) {
+    var id2 = Number(t.dataset.name);
+    var s2 = schools.filter(function (s) { return s.id === id2; })[0];
+    if (s2) s2.name = t.value;
+  }
+  paint();
+});
+
+// ============ 统一刷新 ============
+function paint() {
+  // 权重百分比
+  var w = normalizedWeights();
+  for (var i = 0; i < DIMS.length; i++) {
+    document.getElementById("pct" + i).textContent = Math.round(w[i] * 100) + "%";
+  }
+
+  // 各校总分
+  var ranked = schools.slice().sort(function (a, b) { return totalOf(b) - totalOf(a); });
+
+  schools.forEach(function (s) {
+    document.getElementById("total" + s.id).textContent = fmt(totalOf(s));
+  });
+
+  ranked.forEach(function (s, idx) {
+    var card = schoolsEl.querySelector('[data-id="' + s.id + '"]');
+    if (card) card.style.order = idx;                 // 用 order 排序，不动 DOM，滑块不会失焦
+    document.getElementById("rank" + s.id).textContent = "第 " + (idx + 1) + " 名";
+  });
+  schoolsEl.style.display = "flex";
+  schoolsEl.style.flexDirection = "column";
+}
+
+// ============ 导出 ============
+function buildText() {
+  var w = normalizedWeights();
+  var lines = [];
+  lines.push("六维度院校评估结果");
+  lines.push("权重：" + DIMS.map(function (d, i) { return d + " " + Math.round(w[i] * 100) + "%"; }).join("｜"));
+  lines.push("");
+  var ranked = schools.slice().sort(function (a, b) { return totalOf(b) - totalOf(a); });
+  ranked.forEach(function (s, idx) {
+    lines.push((idx + 1) + ". " + (s.name || "未命名") + "　" + fmt(totalOf(s)));
+    lines.push("   " + DIMS.map(function (d, i) { return d + " " + fmtScore(s.scores[i]); }).join("｜"));
+  });
+  return lines.join("\n");
+}
+
+document.getElementById("export").addEventListener("click", function () {
+  var text = buildText();
+  var msg = document.getElementById("msg");
+  var box = document.getElementById("exportBox");
+  box.value = text;
+
+  function done(ok) {
+    msg.textContent = ok ? "已复制到剪贴板" : "浏览器不让自动复制，请在下面框里全选复制";
+    box.style.display = ok ? "none" : "block";
+    if (!ok) { box.focus(); box.select(); }
+    setTimeout(function () { msg.textContent = ""; }, 4000);
+  }
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+  } else {
+    done(false);
+  }
+});
+
+document.getElementById("add").addEventListener("click", function () { addSchool(null); });
+
+document.getElementById("reset").addEventListener("click", function () {
+  weights = DEFAULT_WEIGHTS.slice();
+  schools = [];
+  seq = 0;
+  schoolsEl.innerHTML = "";
+  DEFAULT_SCHOOLS.forEach(function (d) { addSchool(d); });
+  document.querySelectorAll("[data-w]").forEach(function (el) {
+    el.value = weights[Number(el.dataset.w)];
+  });
+  document.getElementById("exportBox").style.display = "none";
+  paint();
+});
+
+// ============ 启动 ============
+DEFAULT_SCHOOLS.forEach(function (d) { addSchool(d); });
+</script>
+</body>
+</html>
